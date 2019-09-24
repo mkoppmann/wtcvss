@@ -3,7 +3,7 @@ module Main exposing (Model, Msg(..), init, main, update, view)
 import Browser
 import Cvss exposing (..)
 import Dict exposing (Dict)
-import Html exposing (Attribute, Html, a, button, code, div, input, li, text, ul)
+import Html exposing (Attribute, Html, a, button, code, div, input, li, small, text, ul)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Maybe.Extra exposing (values)
@@ -159,6 +159,9 @@ view model =
             , button [ onClick NewRandomVector ] [ text "Get random vector" ]
             ]
         , div [] <| viewVector model.vector
+        , small []
+            [ a [ href "https://github.com/mkoppmann/wtcvss" ] [ text "Source Code" ]
+            ]
         ]
 
 
