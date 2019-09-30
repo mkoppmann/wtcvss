@@ -2,10 +2,6 @@
 elm-stuff
 repl-temp-*
 
-# Nix
-.envrc
-shell.nix
-
 # “dist” files
 *.html
 *.js
