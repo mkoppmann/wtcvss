@@ -74,6 +74,14 @@ type AvailabilityImpact
     | AHigh
 
 
+type Severity
+    = SLow
+    | SMedium
+    | SHigh
+    | SCritical
+    | SNone
+
+
 
 -- CVSSV3 CALCULATION
 
@@ -387,6 +395,25 @@ toStringAvailabilityImpact a =
             "A:H"
 
 
+toStringSeverity : Severity -> String
+toStringSeverity severity =
+    case severity of
+        SNone ->
+            "None"
+
+        SLow ->
+            "Low"
+
+        SMedium ->
+            "Medium"
+
+        SHigh ->
+            "High"
+
+        SCritical ->
+            "Critical"
+
+
 
 -- Random generators
 
@@ -456,3 +483,44 @@ randomIntegrityImpact =
 randomAvailabilityImpact : Random.Generator AvailabilityImpact
 randomAvailabilityImpact =
     Random.uniform ANone [ ALow, AHigh ]
+
+
+toSeverityVector : Vector -> Severity
+toSeverityVector vector =
+    let
+        score =
+            calculateBaseScore vector
+    in
+    if 0.1 <= score && score <= 3.9 then
+        SLow
+
+    else if 4.0 <= score && score <= 6.9 then
+        SMedium
+
+    else if 7.0 <= score && score <= 8.9 then
+        SHigh
+
+    else if 9.0 <= score && score <= 10.0 then
+        SCritical
+
+    else
+        SNone
+
+
+toColorSeverity : Severity -> String
+toColorSeverity severity =
+    case severity of
+        SNone ->
+            "#000000"
+
+        SLow ->
+            "#ffff00"
+
+        SMedium ->
+            "#ff6600"
+
+        SHigh ->
+            "#ff0000"
+
+        SCritical ->
+            "#660000"
