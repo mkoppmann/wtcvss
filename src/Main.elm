@@ -158,8 +158,18 @@ view model =
             , button [ onClick CalculateVectorAgain ] [ text "Generate another vector" ]
             , button [ onClick NewRandomVector ] [ text "Get random vector" ]
             ]
-        , div [] <| viewVector model.vector
-        , small []
+        , div
+            [ style "color" <| toColorSeverity <| toSeverityVector model.vector
+            ]
+          <|
+            viewVector model.vector
+        , div
+            [ style "color" <| toColorSeverity <| toSeverityVector model.vector
+            ]
+            [ text "Severity Rating: "
+            , text <| toStringSeverity <| toSeverityVector model.vector
+            ]
+        , Html.small []
             [ a [ href "https://github.com/mkoppmann/wtcvss" ] [ text "Source Code" ]
             ]
         ]
