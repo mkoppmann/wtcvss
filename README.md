@@ -12,7 +12,7 @@ npm install -g elm
 elm reactor
 
 # build for production
-elm make --optimize --output="wtcvss.html"
+elm make src/Main.elm --optimize --output="wtcvss.html"
 ```
 
 ## Test setup
