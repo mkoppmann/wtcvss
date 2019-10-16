@@ -3,8 +3,7 @@ module Main exposing (Model, Msg(..), init, main, update, view)
 import Browser
 import Browser.Dom exposing (Viewport, getViewport)
 import Browser.Events exposing (onResize)
-import Cvss exposing (..)
-import Dict exposing (Dict)
+import Cvss exposing (Severity(..), Vector, calculateBaseScore, getMatchingVector, initVector, minPrecision, randomVector, toSeverityVector, toStringSeverity, toStringVector)
 import Element exposing (Color, Device, DeviceClass(..), Element, Orientation(..), alignRight, behindContent, centerX, centerY, classifyDevice, column, el, fill, height, layout, link, none, padding, px, rgb, rgb255, rgba, row, shrink, spacing, text, width, wrappedRow)
 import Element.Background as Background
 import Element.Border as Border
@@ -12,7 +11,6 @@ import Element.Font as Font
 import Element.Input as Input
 import Element.Region as Region
 import Html exposing (Html)
-import Maybe.Extra exposing (values)
 import Random exposing (generate)
 import Task
 
@@ -21,14 +19,17 @@ import Task
 -- CONSTANTS
 
 
+cvssv3MinimumScore : Float
 cvssv3MinimumScore =
     0.0
 
 
+cvssv3MaximumScore : Float
 cvssv3MaximumScore =
     10.0
 
 
+firstOrgCvssPrefix : String
 firstOrgCvssPrefix =
     "https://www.first.org/cvss/calculator/3.1#"
 
@@ -52,6 +53,7 @@ lightGrey =
 -- MAIN
 
 
+main : Program () Model Msg
 main =
     Browser.document
         { init = init
@@ -82,11 +84,6 @@ init _ =
       }
     , Task.perform GotViewport getViewport
     )
-
-
-initVector : Vector
-initVector =
-    Vector AvNetwork AcLow PrNone UiNone SUnchanged CNone INone ANone
 
 
 

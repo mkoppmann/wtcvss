@@ -1,4 +1,4 @@
-module Cvss exposing (..)
+module Cvss exposing (AttackComplexity(..), AttackVector(..), AvailabilityImpact(..), ConfidentialityImpact(..), IntegrityImpact(..), PrivilegesRequired(..), Scope(..), Severity(..), UserInteraction(..), Vector, calculateBaseScore, getMatchingVector, initVector, minPrecision, randomVector, toSeverityVector, toStringSeverity, toStringVector)
 
 import Random
 import Random.Extra exposing (andMap)
@@ -12,6 +12,7 @@ import Round exposing (ceilingNum)
 {-| The minimal precision when a vector score is seen as valid.
 The value is needed, because there are some ranges where there are no matching vectors.
 -}
+minPrecision : Float
 minPrecision =
     1.0
 
@@ -80,6 +81,11 @@ type Severity
     | SHigh
     | SCritical
     | SNone
+
+
+initVector : Vector
+initVector =
+    Vector AvNetwork AcLow PrNone UiNone SUnchanged CNone INone ANone
 
 
 
@@ -483,6 +489,10 @@ randomIntegrityImpact =
 randomAvailabilityImpact : Random.Generator AvailabilityImpact
 randomAvailabilityImpact =
     Random.uniform ANone [ ALow, AHigh ]
+
+
+
+-- SEVERITY
 
 
 toSeverityVector : Vector -> Severity
