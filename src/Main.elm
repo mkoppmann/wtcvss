@@ -1,13 +1,20 @@
 module Main exposing (Model, Msg(..), init, main, update, view)
 
 import Browser
+import Browser.Dom exposing (Viewport, getViewport)
+import Browser.Events exposing (onResize)
 import Cvss exposing (..)
 import Dict exposing (Dict)
-import Html exposing (Attribute, Html, a, button, code, div, input, li, small, text, ul)
-import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Element exposing (Color, Device, DeviceClass(..), Element, Orientation(..), alignRight, behindContent, centerX, centerY, classifyDevice, column, el, fill, height, layout, link, none, padding, px, rgb, rgb255, rgba, row, shrink, spacing, text, width, wrappedRow)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Font as Font
+import Element.Input as Input
+import Element.Region as Region
+import Html exposing (Html)
 import Maybe.Extra exposing (values)
 import Random exposing (generate)
+import Task
 
 
 
@@ -26,12 +33,27 @@ firstOrgCvssPrefix =
     "https://www.first.org/cvss/calculator/3.1#"
 
 
+white : Color
+white =
+    rgb 1 1 1
+
+
+grey : Color
+grey =
+    rgb 0.9 0.9 0.9
+
+
+lightGrey : Color
+lightGrey =
+    rgb 0.6 0.6 0.6
+
+
 
 -- MAIN
 
 
 main =
-    Browser.element
+    Browser.document
         { init = init
         , update = update
         , subscriptions = subscriptions
@@ -44,7 +66,8 @@ main =
 
 
 type alias Model =
-    { precision : Float
+    { device : Maybe Device
+    , precision : Float
     , score : Float
     , vector : Vector
     }
@@ -52,11 +75,12 @@ type alias Model =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { precision = minPrecision
+    ( { device = Nothing
+      , precision = minPrecision
       , score = cvssv3MinimumScore
       , vector = initVector
       }
-    , Cmd.none
+    , Task.perform GotViewport getViewport
     )
 
 
@@ -70,8 +94,10 @@ initVector =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+subscriptions _ =
+    onResize <|
+        \width height ->
+            DeviceClassified <| classifyDevice { width = width, height = height }
 
 
 
@@ -79,11 +105,13 @@ subscriptions model =
 
 
 type Msg
-    = ChangePrecision String
-    | ChangeScore String
+    = ChangePrecision Float
+    | ChangeScore Float
     | ChangeVector Vector
     | ChangeScoreAndVector Vector
     | CalculateVectorAgain
+    | DeviceClassified Device
+    | GotViewport Viewport
     | NewRandomVector
 
 
@@ -91,45 +119,45 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         ChangePrecision newPrecision ->
-            let
-                floatPrecision =
-                    Maybe.withDefault 1 <| String.toFloat newPrecision
-            in
-            ( { model
-                | precision = floatPrecision
-              }
-            , newRandomVectorWithScore floatPrecision model.score
+            ( { model | precision = newPrecision }
+            , newRandomVectorWithScore newPrecision model.score
             )
 
         ChangeScore newScore ->
-            let
-                floatScore =
-                    Maybe.withDefault 0.0 <| String.toFloat newScore
-            in
-            ( { model
-                | score = floatScore
-              }
-            , newRandomVectorWithScore model.precision floatScore
+            ( { model | score = newScore }
+            , newRandomVectorWithScore model.precision newScore
             )
 
         ChangeVector newVector ->
-            ( { model
-                | vector = newVector
-              }
+            ( { model | vector = newVector }
             , Cmd.none
             )
 
         ChangeScoreAndVector newVector ->
-            ( { model
-                | score = calculateBaseScore newVector
-                , vector = newVector
-              }
+            ( { model | score = calculateBaseScore newVector, vector = newVector }
             , Cmd.none
             )
 
         CalculateVectorAgain ->
             ( model
             , newRandomVectorWithScore model.precision model.score
+            )
+
+        DeviceClassified device ->
+            ( { model | device = Just device }
+            , Cmd.none
+            )
+
+        GotViewport viewport ->
+            ( { model
+                | device =
+                    Just <|
+                        classifyDevice
+                            { height = round viewport.viewport.height
+                            , width = round viewport.viewport.width
+                            }
+              }
+            , Cmd.none
             )
 
         NewRandomVector ->
@@ -142,66 +170,158 @@ update msg model =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    div []
-        [ div []
-            [ div []
-                [ text "Precision"
-                , precisionInput model.precision
-                ]
-            , div []
-                [ text "Score"
-                , scoreInput "range" model.score
-                , scoreInput "number" model.score
-                ]
-            , button [ onClick CalculateVectorAgain ] [ text "Generate another vector" ]
-            , button [ onClick NewRandomVector ] [ text "Get random vector" ]
+    { title = "WTCVSS"
+    , body = deviceBody model
+    }
+
+
+deviceBody : Model -> List (Html Msg)
+deviceBody model =
+    let
+        fallback =
+            { class = Desktop
+            , orientation = Landscape
+            }
+
+        device =
+            Maybe.withDefault fallback model.device
+    in
+    case device.class of
+        Phone ->
+            mobileLayout model
+
+        _ ->
+            desktopLayout model
+
+
+mobileLayout : Model -> List (Html Msg)
+mobileLayout model =
+    responsiveLayout 0 14 model
+
+
+desktopLayout : Model -> List (Html Msg)
+desktopLayout model =
+    responsiveLayout 10 20 model
+
+
+responsiveLayout : Int -> Int -> Model -> List (Html Msg)
+responsiveLayout borderRadius fontSize model =
+    [ layout
+        [ Background.color grey
+        , Region.mainContent
+        ]
+      <|
+        column
+            [ Background.color white
+            , Border.rounded borderRadius
+            , Border.shadow { offset = ( 4, 6 ), size = 1, blur = 8, color = rgba 0 0 0 0.2 }
+            , centerX
+            , centerY
+            , height shrink
+            , padding 24
+            , spacing 36
+            , width shrink
             ]
-        , div
-            [ style "color" <| toColorSeverity <| toSeverityVector model.vector
+            [ title
+            , precisionInput model.precision
+            , scoreInput model.score
+            , viewVector fontSize model.vector
+            , buttons
+            , linkToSourceCode
             ]
-          <|
-            viewVector model.vector
-        , div
-            [ style "color" <| toColorSeverity <| toSeverityVector model.vector
-            ]
-            [ text "Severity Rating: "
-            , text <| toStringSeverity <| toSeverityVector model.vector
-            ]
-        , Html.small []
-            [ a [ href "https://github.com/mkoppmann/wtcvss" ] [ text "Source Code" ]
-            ]
+    ]
+
+
+title : Element msg
+title =
+    el
+        [ Font.size 32
+        , Font.variant Font.smallCaps
+        , Region.heading 1
+        ]
+        (text "Wtcvss")
+
+
+linkToSourceCode : Element msg
+linkToSourceCode =
+    el
+        [ alignRight
+        , Font.color lightGrey
+        , Font.size 14
+        , Region.footer
+        ]
+        (link []
+            { url = "https://github.com/mkoppmann/wtcvss"
+            , label = text "Source Code"
+            }
+        )
+
+
+buttons : Element Msg
+buttons =
+    wrappedRow
+        [ width fill
+        , Font.center
+        , spacing 10
+        ]
+        [ vectorButton CalculateVectorAgain "Get another matching vector"
+        , vectorButton NewRandomVector "Get vector with random score"
         ]
 
 
-precisionInput : Float -> Html Msg
+vectorButton : Msg -> String -> Element Msg
+vectorButton message labelText =
+    Input.button
+        [ width shrink
+        , Background.color grey
+        , padding 10
+        , Border.rounded 5
+        ]
+        { onPress = Just message
+        , label = text labelText
+        }
+
+
+precisionInput : Float -> Element Msg
 precisionInput precision =
-    input
-        [ type_ "number"
-        , Html.Attributes.min <| String.fromFloat minPrecision
-        , Html.Attributes.step "0.1"
-        , value <| String.fromFloat precision
-        , onInput ChangePrecision
+    inputSlider ChangePrecision "Precision: " minPrecision precision
+
+
+scoreInput : Float -> Element Msg
+scoreInput score =
+    inputSlider ChangeScore "Target score: " cvssv3MinimumScore score
+
+
+inputSlider : (Float -> Msg) -> String -> Float -> Float -> Element Msg
+inputSlider message label minimum value =
+    row [ width fill ]
+        [ Input.slider
+            [ height (px 30)
+            , behindContent
+                (el
+                    [ width fill
+                    , height (px 2)
+                    , centerY
+                    , Background.color grey
+                    ]
+                    none
+                )
+            ]
+            { onChange = message
+            , label = Input.labelAbove [] (text <| label ++ String.fromFloat value)
+            , min = minimum
+            , max = cvssv3MaximumScore
+            , step = Just 0.1
+            , value = value
+            , thumb = Input.defaultThumb
+            }
         ]
-        []
 
 
-scoreInput : String -> Float -> Html Msg
-scoreInput inputType score =
-    input
-        [ type_ inputType
-        , Html.Attributes.min <| String.fromFloat cvssv3MinimumScore
-        , Html.Attributes.max <| String.fromFloat cvssv3MaximumScore
-        , Html.Attributes.step "0.1"
-        , value <| String.fromFloat score
-        , onInput ChangeScore
-        ]
-        []
-
-
-viewVector : Vector -> List (Html Msg)
-viewVector vector =
+viewVector : Int -> Vector -> Element msg
+viewVector size vector =
     let
         sVector =
             toStringVector vector
@@ -212,12 +332,50 @@ viewVector vector =
         sVectorScore =
             String.fromFloat (calculateBaseScore vector)
 
-        aTag =
-            a [ href sVectorUrl ] <| [ code [] [ text sVector ] ]
+        linkedVector =
+            el
+                [ Background.color <| toColorSeverity <| toSeverityVector vector
+                , Border.innerShadow { offset = ( 0, 2 ), size = 0, blur = 4, color = rgba 0 0 0 0.2 }
+                , Border.rounded 5
+                , Font.color white
+                , Font.size size
+                , padding 10
+                ]
+                (link
+                    [ Font.family [ Font.monospace ] ]
+                    { url = sVectorUrl
+                    , label = text sVector
+                    }
+                )
     in
-    [ aTag
-    , text <| " – " ++ sVectorScore
-    ]
+    column [ spacing 10 ]
+        [ text <|
+            "Vector score: "
+                ++ sVectorScore
+                ++ " ("
+                ++ (toStringSeverity <| toSeverityVector vector)
+                ++ ")"
+        , linkedVector
+        ]
+
+
+toColorSeverity : Severity -> Color
+toColorSeverity severity =
+    case severity of
+        SNone ->
+            rgb255 83 170 51
+
+        SLow ->
+            rgb255 255 203 13
+
+        SMedium ->
+            rgb255 249 160 9
+
+        SHigh ->
+            rgb255 223 61 3
+
+        SCritical ->
+            rgb255 204 5 0
 
 
 
