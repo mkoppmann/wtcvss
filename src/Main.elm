@@ -195,7 +195,7 @@ deviceBody model =
 
 mobileLayout : Model -> List (Html Msg)
 mobileLayout model =
-    responsiveLayout 0 14 model
+    responsiveLayout 0 10 model
 
 
 desktopLayout : Model -> List (Html Msg)
