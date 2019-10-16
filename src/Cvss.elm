@@ -505,22 +505,3 @@ toSeverityVector vector =
 
     else
         SNone
-
-
-toColorSeverity : Severity -> String
-toColorSeverity severity =
-    case severity of
-        SNone ->
-            "#000000"
-
-        SLow ->
-            "#ffff00"
-
-        SMedium ->
-            "#ff6600"
-
-        SHigh ->
-            "#ff0000"
-
-        SCritical ->
-            "#660000"
