@@ -381,6 +381,7 @@ selectVectorChoice currentChoice =
         , options =
             [ Input.option BaseVectorChoice (text "Base")
             , Input.option TemporalVectorChoice (text "Temporal")
+            , Input.option EnvironmentalVectorChoice (text "Environmental")
             ]
         }
 
@@ -437,3 +438,6 @@ getMinPrecision choice =
 
         TemporalVectorChoice ->
             0.7
+
+        EnvironmentalVectorChoice ->
+            0.4

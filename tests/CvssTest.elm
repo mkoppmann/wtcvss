@@ -63,6 +63,26 @@ cvtest =
                 \_ ->
                     testTemporalVector 6.9 temporalVectorValue3ForBase2
             ]
+        , describe "CVSS environmental score calculation"
+            [ test "environmentalVectorValue1ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 9.1 environmentalVectorValue1ForTemp1
+            , test "environmentalVectorValue2ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 8.0 environmentalVectorValue2ForTemp1
+            , test "environmentalVectorValue3ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 9.1 environmentalVectorValue3ForTemp1
+            , test "environmentalVectorValue4ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 8.5 environmentalVectorValue4ForTemp1
+            , test "environmentalVectorValue5ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 6.8 environmentalVectorValue5ForTemp1
+            , test "environmentalVectorValue6ForTemp1 has correct score" <|
+                \_ ->
+                    testEnvironmentalVector 8.5 environmentalVectorValue6ForTemp1
+            ]
         ]
 
 
@@ -88,6 +108,36 @@ temporalVectorValue2ForBase1 =
 temporalVectorValue3ForBase1 : TemporalVectorValue
 temporalVectorValue3ForBase1 =
     TemporalVectorValue baseVectorValue1 EFunctional RlWorkaround RcReasonable
+
+
+environmentalVectorValue1ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue1ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrLow) MuiNotDefined MsNotDefined (Mc CLow) MiNotDefined MaNotDefined
+
+
+environmentalVectorValue2ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue2ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrLow) MuiNotDefined (Ms SUnchanged) (Mc CLow) MiNotDefined MaNotDefined
+
+
+environmentalVectorValue3ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue3ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrLow) MuiNotDefined (Ms SChanged) (Mc CLow) MiNotDefined MaNotDefined
+
+
+environmentalVectorValue4ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue4ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrHigh) MuiNotDefined MsNotDefined (Mc CLow) MiNotDefined MaNotDefined
+
+
+environmentalVectorValue5ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue5ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrHigh) MuiNotDefined (Ms SUnchanged) (Mc CLow) MiNotDefined MaNotDefined
+
+
+environmentalVectorValue6ForTemp1 : EnvironmentalVectorValue
+environmentalVectorValue6ForTemp1 =
+    EnvironmentalVectorValue temporalVectorValue1ForBase1 CrLow IrMedium ArHigh MavNotDefined (Mac AcLow) (Mpr PrHigh) MuiNotDefined (Ms SChanged) (Mc CLow) MiNotDefined MaNotDefined
 
 
 baseVectorValue2 : BaseVectorValue
@@ -162,3 +212,8 @@ testBaseVector score value =
 testTemporalVector : Float -> TemporalVectorValue -> Expectation
 testTemporalVector score value =
     Expect.within (Expect.Absolute 0.001) score (calculateScore <| TemporalVector value)
+
+
+testEnvironmentalVector : Float -> EnvironmentalVectorValue -> Expectation
+testEnvironmentalVector score value =
+    Expect.within (Expect.Absolute 0.001) score (calculateScore <| EnvironmentalVector value)

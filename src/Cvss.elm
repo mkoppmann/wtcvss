@@ -1,7 +1,7 @@
-module Cvss exposing (AttackComplexity(..), AttackVector(..), AvailabilityImpact(..), BaseVectorValue, ConfidentialityImpact(..), ExploitCodeMaturity(..), IntegrityImpact(..), PrivilegesRequired(..), RemediationLevel(..), ReportConfidence(..), Scope(..), Severity(..), TemporalVectorValue, UserInteraction(..), Vector(..), VectorChoice(..), calculateScore, getMatchingVector, initVector, randomVector, toSeverityVector, toStringSeverity, toStringVector)
+module Cvss exposing (AttackComplexity(..), AttackVector(..), AvailabilityImpact(..), AvailabilityRequirement(..), BaseVectorValue, ConfidentialityImpact(..), ConfidentialityRequirement(..), EnvironmentalVectorValue, ExploitCodeMaturity(..), IntegrityImpact(..), IntegrityRequirement(..), ModifiedAttackComplexity(..), ModifiedAttackVector(..), ModifiedAvailabilityImpact(..), ModifiedConfidentialityImpact(..), ModifiedIntegrityImpact(..), ModifiedPrivilegesRequired(..), ModifiedScope(..), ModifiedUserInteraction(..), PrivilegesRequired(..), RemediationLevel(..), ReportConfidence(..), Scope(..), Severity(..), TemporalVectorValue, UserInteraction(..), Vector(..), VectorChoice(..), calculateScore, getMatchingVector, initVector, randomVector, toSeverityVector, toStringSeverity, toStringVector)
 
 import Random
-import Random.Extra exposing (andMap, choice)
+import Random.Extra exposing (andMap)
 import Round exposing (ceilingNum)
 
 
@@ -12,11 +12,13 @@ import Round exposing (ceilingNum)
 type Vector
     = BaseVector BaseVectorValue
     | TemporalVector TemporalVectorValue
+    | EnvironmentalVector EnvironmentalVectorValue
 
 
 type VectorChoice
     = BaseVectorChoice
     | TemporalVectorChoice
+    | EnvironmentalVectorChoice
 
 
 type alias BaseVectorValue =
@@ -39,6 +41,22 @@ type alias TemporalVectorValue =
     }
 
 
+type alias EnvironmentalVectorValue =
+    { temp : TemporalVectorValue
+    , cr : ConfidentialityRequirement
+    , ir : IntegrityRequirement
+    , ar : AvailabilityRequirement
+    , mav : ModifiedAttackVector
+    , mac : ModifiedAttackComplexity
+    , mpr : ModifiedPrivilegesRequired
+    , mui : ModifiedUserInteraction
+    , ms : ModifiedScope
+    , mc : ModifiedConfidentialityImpact
+    , mi : ModifiedIntegrityImpact
+    , ma : ModifiedAvailabilityImpact
+    }
+
+
 type AttackVector
     = AvNetwork
     | AvAdjacentNetwork
@@ -46,9 +64,19 @@ type AttackVector
     | AvPhysical
 
 
+type ModifiedAttackVector
+    = MavNotDefined
+    | Mav AttackVector
+
+
 type AttackComplexity
     = AcLow
     | AcHigh
+
+
+type ModifiedAttackComplexity
+    = MacNotDefined
+    | Mac AttackComplexity
 
 
 type PrivilegesRequired
@@ -57,14 +85,29 @@ type PrivilegesRequired
     | PrHigh
 
 
+type ModifiedPrivilegesRequired
+    = MprNotDefined
+    | Mpr PrivilegesRequired
+
+
 type UserInteraction
     = UiNone
     | UiRequired
 
 
+type ModifiedUserInteraction
+    = MuiNotDefined
+    | Mui UserInteraction
+
+
 type Scope
     = SUnchanged
     | SChanged
+
+
+type ModifiedScope
+    = MsNotDefined
+    | Ms Scope
 
 
 type ConfidentialityImpact
@@ -73,16 +116,31 @@ type ConfidentialityImpact
     | CHigh
 
 
+type ModifiedConfidentialityImpact
+    = McNotDefined
+    | Mc ConfidentialityImpact
+
+
 type IntegrityImpact
     = INone
     | ILow
     | IHigh
 
 
+type ModifiedIntegrityImpact
+    = MiNotDefined
+    | Mi IntegrityImpact
+
+
 type AvailabilityImpact
     = ANone
     | ALow
     | AHigh
+
+
+type ModifiedAvailabilityImpact
+    = MaNotDefined
+    | Ma AvailabilityImpact
 
 
 type ExploitCodeMaturity
@@ -106,6 +164,27 @@ type ReportConfidence
     | RcUnknown
     | RcReasonable
     | RcConfirmed
+
+
+type ConfidentialityRequirement
+    = CrNotDefined
+    | CrLow
+    | CrMedium
+    | CrHigh
+
+
+type IntegrityRequirement
+    = IrNotDefined
+    | IrLow
+    | IrMedium
+    | IrHigh
+
+
+type AvailabilityRequirement
+    = ArNotDefined
+    | ArLow
+    | ArMedium
+    | ArHigh
 
 
 type Severity
@@ -141,6 +220,9 @@ calculateScore vector =
 
         TemporalVector value ->
             calculateTemporalScore value
+
+        EnvironmentalVector value ->
+            calculateEnvironmentalScore value
 
 
 calculateBaseScore : BaseVectorValue -> Float
@@ -229,6 +311,115 @@ calculateTemporalScore value =
     roundUp <| baseScore * exploitCodeMaturity * remediationLevel * reportConfidence
 
 
+calculateEnvironmentalScore : EnvironmentalVectorValue -> Float
+calculateEnvironmentalScore value =
+    let
+        impact =
+            modifiedImpactSubScore value
+
+        exploitability =
+            modifiedExploitabilitySubScore value
+
+        exploitCodeMaturity =
+            toFloatExploitCodeMaturity value.temp.e
+
+        remediationLevel =
+            toFloatRemediationLevel value.temp.rl
+
+        reportConfidence =
+            toFloatReportConfidence value.temp.rc
+
+        unchanged =
+            roundUp (roundUp (min (impact + exploitability) 10) * exploitCodeMaturity * remediationLevel * reportConfidence)
+
+        changed =
+            roundUp (roundUp (min (1.08 * (impact + exploitability)) 10) * exploitCodeMaturity * remediationLevel * reportConfidence)
+    in
+    if impact <= 0 then
+        0.0
+
+    else
+        case value.ms of
+            MsNotDefined ->
+                case value.temp.base.s of
+                    SUnchanged ->
+                        unchanged
+
+                    SChanged ->
+                        changed
+
+            Ms scopeValue ->
+                case scopeValue of
+                    SUnchanged ->
+                        unchanged
+
+                    SChanged ->
+                        changed
+
+
+modifiedImpactSubScore : EnvironmentalVectorValue -> Float
+modifiedImpactSubScore value =
+    let
+        modifiedIscBase =
+            modifiedImpactSubScoreBase value
+
+        unchanged =
+            6.42 * modifiedIscBase
+
+        changed =
+            (7.52 * (modifiedIscBase - 0.029)) - (3.25 * (modifiedIscBase * 0.9731 - 0.02) ^ 13)
+    in
+    case value.ms of
+        MsNotDefined ->
+            case value.temp.base.s of
+                SUnchanged ->
+                    unchanged
+
+                SChanged ->
+                    changed
+
+        Ms scopeValue ->
+            case scopeValue of
+                SUnchanged ->
+                    unchanged
+
+                SChanged ->
+                    changed
+
+
+modifiedImpactSubScoreBase : EnvironmentalVectorValue -> Float
+modifiedImpactSubScoreBase value =
+    let
+        impactConf =
+            1 - toFloatConfidentialityRequirements value.cr * toFloatModifiedConfidentialityImpact value.mc value.temp.base.c
+
+        impactInteg =
+            1 - toFloatIntegrityRequirements value.ir * toFloatModifiedIntegrityImpact value.mi value.temp.base.i
+
+        impactAvail =
+            1 - toFloatAvailabilityRequirements value.ar * toFloatModifiedAvailabilityImpact value.ma value.temp.base.a
+    in
+    min (1 - (impactConf * impactInteg * impactAvail)) 0.915
+
+
+modifiedExploitabilitySubScore : EnvironmentalVectorValue -> Float
+modifiedExploitabilitySubScore value =
+    let
+        av =
+            toFloatModifiedAttackVector value.mav value.temp.base.av
+
+        ac =
+            toFloatModifiedAttackComplexity value.mac value.temp.base.ac
+
+        pr =
+            toFloatModifiedPrivilegesRequired value.ms value.mpr value.temp.base.s value.temp.base.pr
+
+        ui =
+            toFloatModifiedUserInteraction value.mui value.temp.base.ui
+    in
+    8.22 * av * ac * pr * ui
+
+
 
 -- TO_FLOAT
 
@@ -249,6 +440,16 @@ toFloatAttackVector av =
             0.2
 
 
+toFloatModifiedAttackVector : ModifiedAttackVector -> AttackVector -> Float
+toFloatModifiedAttackVector mav base =
+    case mav of
+        MavNotDefined ->
+            toFloatAttackVector base
+
+        Mav value ->
+            toFloatAttackVector value
+
+
 toFloatAttackComplexity : AttackComplexity -> Float
 toFloatAttackComplexity ac =
     case ac of
@@ -257,6 +458,16 @@ toFloatAttackComplexity ac =
 
         AcHigh ->
             0.44
+
+
+toFloatModifiedAttackComplexity : ModifiedAttackComplexity -> AttackComplexity -> Float
+toFloatModifiedAttackComplexity mac base =
+    case mac of
+        MacNotDefined ->
+            toFloatAttackComplexity base
+
+        Mac value ->
+            toFloatAttackComplexity value
 
 
 toFloatPrivilegesRequired : Scope -> PrivilegesRequired -> Float
@@ -285,6 +496,26 @@ toFloatPrivilegesRequired s pr =
                     0.5
 
 
+toFloatModifiedPrivilegesRequired : ModifiedScope -> ModifiedPrivilegesRequired -> Scope -> PrivilegesRequired -> Float
+toFloatModifiedPrivilegesRequired ms mpr baseScope basePr =
+    case ms of
+        MsNotDefined ->
+            case mpr of
+                MprNotDefined ->
+                    toFloatPrivilegesRequired baseScope basePr
+
+                Mpr prValue ->
+                    toFloatPrivilegesRequired baseScope prValue
+
+        Ms scopeValue ->
+            case mpr of
+                MprNotDefined ->
+                    toFloatPrivilegesRequired scopeValue basePr
+
+                Mpr prValue ->
+                    toFloatPrivilegesRequired scopeValue prValue
+
+
 toFloatUserInteraction : UserInteraction -> Float
 toFloatUserInteraction ui =
     case ui of
@@ -293,6 +524,16 @@ toFloatUserInteraction ui =
 
         UiRequired ->
             0.62
+
+
+toFloatModifiedUserInteraction : ModifiedUserInteraction -> UserInteraction -> Float
+toFloatModifiedUserInteraction mui base =
+    case mui of
+        MuiNotDefined ->
+            toFloatUserInteraction base
+
+        Mui value ->
+            toFloatUserInteraction value
 
 
 toFloatConfidentialityImpact : ConfidentialityImpact -> Float
@@ -308,6 +549,16 @@ toFloatConfidentialityImpact c =
             0
 
 
+toFloatModifiedConfidentialityImpact : ModifiedConfidentialityImpact -> ConfidentialityImpact -> Float
+toFloatModifiedConfidentialityImpact mc base =
+    case mc of
+        McNotDefined ->
+            toFloatConfidentialityImpact base
+
+        Mc value ->
+            toFloatConfidentialityImpact value
+
+
 toFloatIntegrityImpact : IntegrityImpact -> Float
 toFloatIntegrityImpact i =
     case i of
@@ -321,6 +572,16 @@ toFloatIntegrityImpact i =
             0.0
 
 
+toFloatModifiedIntegrityImpact : ModifiedIntegrityImpact -> IntegrityImpact -> Float
+toFloatModifiedIntegrityImpact mi base =
+    case mi of
+        MiNotDefined ->
+            toFloatIntegrityImpact base
+
+        Mi value ->
+            toFloatIntegrityImpact value
+
+
 toFloatAvailabilityImpact : AvailabilityImpact -> Float
 toFloatAvailabilityImpact a =
     case a of
@@ -332,6 +593,16 @@ toFloatAvailabilityImpact a =
 
         ANone ->
             0.0
+
+
+toFloatModifiedAvailabilityImpact : ModifiedAvailabilityImpact -> AvailabilityImpact -> Float
+toFloatModifiedAvailabilityImpact ma base =
+    case ma of
+        MaNotDefined ->
+            toFloatAvailabilityImpact base
+
+        Ma value ->
+            toFloatAvailabilityImpact value
 
 
 toFloatExploitCodeMaturity : ExploitCodeMaturity -> Float
@@ -388,6 +659,54 @@ toFloatReportConfidence rc =
             1.0
 
 
+toFloatConfidentialityRequirements : ConfidentialityRequirement -> Float
+toFloatConfidentialityRequirements cr =
+    case cr of
+        CrNotDefined ->
+            toFloatConfidentialityRequirements CrMedium
+
+        CrLow ->
+            0.5
+
+        CrMedium ->
+            1.0
+
+        CrHigh ->
+            1.5
+
+
+toFloatIntegrityRequirements : IntegrityRequirement -> Float
+toFloatIntegrityRequirements ir =
+    case ir of
+        IrNotDefined ->
+            toFloatIntegrityRequirements IrMedium
+
+        IrLow ->
+            0.5
+
+        IrMedium ->
+            1.0
+
+        IrHigh ->
+            1.5
+
+
+toFloatAvailabilityRequirements : AvailabilityRequirement -> Float
+toFloatAvailabilityRequirements ar =
+    case ar of
+        ArNotDefined ->
+            toFloatAvailabilityRequirements ArMedium
+
+        ArLow ->
+            0.5
+
+        ArMedium ->
+            1.0
+
+        ArHigh ->
+            1.5
+
+
 
 -- TO_STRING
 
@@ -400,6 +719,27 @@ toStringVector vector =
 
         TemporalVector value ->
             toStringTemporalVector value
+
+        EnvironmentalVector value ->
+            toStringEnvironmentalVector value
+
+
+toStringEnvironmentalVector : EnvironmentalVectorValue -> String
+toStringEnvironmentalVector value =
+    String.dropRight 1 <|
+        toStringTemporalVector value.temp
+            ++ "/"
+            ++ toStringConfidentialityRequirement value.cr
+            ++ toStringIntegrityRequirement value.ir
+            ++ toStringAvailabilityRequirement value.ar
+            ++ toStringModifiedAttackVector value.mav
+            ++ toStringModifiedAttackComplexity value.mac
+            ++ toStringModifiedPrivilegesRequired value.mpr
+            ++ toStringModifiedUserInteraction value.mui
+            ++ toStringModifiedScope value.ms
+            ++ toStringModifiedConfidentialityImpact value.mc
+            ++ toStringModifiedIntegrityImpact value.mi
+            ++ toStringModifiedAvailabilityImpact value.ma
 
 
 toStringTemporalVector : TemporalVectorValue -> String
@@ -442,6 +782,16 @@ toStringAttackVector av =
             "AV:P/"
 
 
+toStringModifiedAttackVector : ModifiedAttackVector -> String
+toStringModifiedAttackVector mav =
+    case mav of
+        MavNotDefined ->
+            ""
+
+        Mav value ->
+            String.append "M" <| toStringAttackVector value
+
+
 toStringAttackComplexity : AttackComplexity -> String
 toStringAttackComplexity ac =
     case ac of
@@ -450,6 +800,16 @@ toStringAttackComplexity ac =
 
         AcHigh ->
             "AC:H/"
+
+
+toStringModifiedAttackComplexity : ModifiedAttackComplexity -> String
+toStringModifiedAttackComplexity mac =
+    case mac of
+        MacNotDefined ->
+            ""
+
+        Mac value ->
+            String.append "M" <| toStringAttackComplexity value
 
 
 toStringPrivilegesRequired : PrivilegesRequired -> String
@@ -465,6 +825,16 @@ toStringPrivilegesRequired pr =
             "PR:H/"
 
 
+toStringModifiedPrivilegesRequired : ModifiedPrivilegesRequired -> String
+toStringModifiedPrivilegesRequired mpr =
+    case mpr of
+        MprNotDefined ->
+            ""
+
+        Mpr value ->
+            String.append "M" <| toStringPrivilegesRequired value
+
+
 toStringUserInteraction : UserInteraction -> String
 toStringUserInteraction ui =
     case ui of
@@ -475,6 +845,16 @@ toStringUserInteraction ui =
             "UI:R/"
 
 
+toStringModifiedUserInteraction : ModifiedUserInteraction -> String
+toStringModifiedUserInteraction mui =
+    case mui of
+        MuiNotDefined ->
+            ""
+
+        Mui value ->
+            String.append "M" <| toStringUserInteraction value
+
+
 toStringScope : Scope -> String
 toStringScope s =
     case s of
@@ -483,6 +863,16 @@ toStringScope s =
 
         SChanged ->
             "S:C/"
+
+
+toStringModifiedScope : ModifiedScope -> String
+toStringModifiedScope ms =
+    case ms of
+        MsNotDefined ->
+            ""
+
+        Ms value ->
+            String.append "M" <| toStringScope value
 
 
 toStringConfidentialityImpact : ConfidentialityImpact -> String
@@ -498,6 +888,16 @@ toStringConfidentialityImpact c =
             "C:H/"
 
 
+toStringModifiedConfidentialityImpact : ModifiedConfidentialityImpact -> String
+toStringModifiedConfidentialityImpact mc =
+    case mc of
+        McNotDefined ->
+            ""
+
+        Mc value ->
+            String.append "M" <| toStringConfidentialityImpact value
+
+
 toStringIntegrityImpact : IntegrityImpact -> String
 toStringIntegrityImpact i =
     case i of
@@ -509,6 +909,16 @@ toStringIntegrityImpact i =
 
         IHigh ->
             "I:H/"
+
+
+toStringModifiedIntegrityImpact : ModifiedIntegrityImpact -> String
+toStringModifiedIntegrityImpact mi =
+    case mi of
+        MiNotDefined ->
+            ""
+
+        Mi value ->
+            String.append "M" <| toStringIntegrityImpact value
 
 
 toStringAvailabilityImpact : AvailabilityImpact -> String
@@ -524,6 +934,16 @@ toStringAvailabilityImpact a =
             "A:H/"
 
 
+toStringModifiedAvailabilityImpact : ModifiedAvailabilityImpact -> String
+toStringModifiedAvailabilityImpact ma =
+    case ma of
+        MaNotDefined ->
+            ""
+
+        Ma value ->
+            String.append "M" <| toStringAvailabilityImpact value
+
+
 toStringExploitCodeMaturity : ExploitCodeMaturity -> String
 toStringExploitCodeMaturity em =
     case em of
@@ -534,10 +954,10 @@ toStringExploitCodeMaturity em =
             "E:U/"
 
         EProofOfConcept ->
-            "E:F/"
+            "E:P/"
 
         EFunctional ->
-            "E:P/"
+            "E:F/"
 
         EHigh ->
             "E:H/"
@@ -576,6 +996,54 @@ toStringReportConfidence rc =
 
         RcConfirmed ->
             "RC:C/"
+
+
+toStringConfidentialityRequirement : ConfidentialityRequirement -> String
+toStringConfidentialityRequirement cr =
+    case cr of
+        CrNotDefined ->
+            ""
+
+        CrLow ->
+            "CR:L/"
+
+        CrMedium ->
+            "CR:M/"
+
+        CrHigh ->
+            "CR:H/"
+
+
+toStringIntegrityRequirement : IntegrityRequirement -> String
+toStringIntegrityRequirement ir =
+    case ir of
+        IrNotDefined ->
+            ""
+
+        IrLow ->
+            "IR:L/"
+
+        IrMedium ->
+            "IR:M/"
+
+        IrHigh ->
+            "IR:H/"
+
+
+toStringAvailabilityRequirement : AvailabilityRequirement -> String
+toStringAvailabilityRequirement ar =
+    case ar of
+        ArNotDefined ->
+            ""
+
+        ArLow ->
+            "AR:L/"
+
+        ArMedium ->
+            "AR:M/"
+
+        ArHigh ->
+            "AR:H/"
 
 
 toStringSeverity : Severity -> String
@@ -620,6 +1088,9 @@ getMatchingVector choice minPrecision maxPrecision score =
         TemporalVectorChoice ->
             Random.Extra.filter (\vector -> isInRange <| calculateScore vector) randomTemporalVector
 
+        EnvironmentalVectorChoice ->
+            Random.Extra.filter (\vector -> isInRange <| calculateScore vector) randomEnvironmentalVector
+
 
 randomVector : VectorChoice -> Random.Generator Vector
 randomVector choice =
@@ -629,6 +1100,31 @@ randomVector choice =
 
         TemporalVectorChoice ->
             randomTemporalVector
+
+        EnvironmentalVectorChoice ->
+            randomEnvironmentalVector
+
+
+randomEnvironmentalVector : Random.Generator Vector
+randomEnvironmentalVector =
+    let
+        temporalVectorValue =
+            Random.map extractTemporalVectorValue randomTemporalVector
+    in
+    Random.map EnvironmentalVector
+        (Random.map EnvironmentalVectorValue temporalVectorValue
+            |> andMap randomConfidentialityRequirement
+            |> andMap randomIntegrityRequirement
+            |> andMap randomAvailabilityRequirement
+            |> andMap randomModifiedAttackVector
+            |> andMap randomModifiedAttackComplexity
+            |> andMap randomModifiedPrivilegesRequired
+            |> andMap randomModifiedUserInteraction
+            |> andMap randomModifiedScope
+            |> andMap randomModifiedConfidentialityImpact
+            |> andMap randomModifiedIntegrityImpact
+            |> andMap randomModifiedAvailabilityImpact
+        )
 
 
 randomTemporalVector : Random.Generator Vector
@@ -664,9 +1160,21 @@ randomAttackVector =
     Random.uniform AvNetwork [ AvAdjacentNetwork, AvLocal, AvPhysical ]
 
 
+randomModifiedAttackVector : Random.Generator ModifiedAttackVector
+randomModifiedAttackVector =
+    Random.uniform MavNotDefined <|
+        List.map Mav [ AvNetwork, AvAdjacentNetwork, AvLocal, AvPhysical ]
+
+
 randomAttackComplexity : Random.Generator AttackComplexity
 randomAttackComplexity =
     Random.uniform AcLow [ AcHigh ]
+
+
+randomModifiedAttackComplexity : Random.Generator ModifiedAttackComplexity
+randomModifiedAttackComplexity =
+    Random.uniform MacNotDefined <|
+        List.map Mac [ AcLow, AcHigh ]
 
 
 randomPrivilegesRequired : Random.Generator PrivilegesRequired
@@ -674,9 +1182,21 @@ randomPrivilegesRequired =
     Random.uniform PrNone [ PrLow, PrHigh ]
 
 
+randomModifiedPrivilegesRequired : Random.Generator ModifiedPrivilegesRequired
+randomModifiedPrivilegesRequired =
+    Random.uniform MprNotDefined <|
+        List.map Mpr [ PrNone, PrLow, PrHigh ]
+
+
 randomUserInteraction : Random.Generator UserInteraction
 randomUserInteraction =
     Random.uniform UiNone [ UiRequired ]
+
+
+randomModifiedUserInteraction : Random.Generator ModifiedUserInteraction
+randomModifiedUserInteraction =
+    Random.uniform MuiNotDefined <|
+        List.map Mui [ UiNone, UiRequired ]
 
 
 randomScope : Random.Generator Scope
@@ -684,9 +1204,21 @@ randomScope =
     Random.uniform SUnchanged [ SChanged ]
 
 
+randomModifiedScope : Random.Generator ModifiedScope
+randomModifiedScope =
+    Random.uniform MsNotDefined <|
+        List.map Ms [ SUnchanged, SChanged ]
+
+
 randomConfidentialityImpact : Random.Generator ConfidentialityImpact
 randomConfidentialityImpact =
     Random.uniform CNone [ CLow, CHigh ]
+
+
+randomModifiedConfidentialityImpact : Random.Generator ModifiedConfidentialityImpact
+randomModifiedConfidentialityImpact =
+    Random.uniform McNotDefined <|
+        List.map Mc [ CNone, CLow, CHigh ]
 
 
 randomIntegrityImpact : Random.Generator IntegrityImpact
@@ -694,9 +1226,21 @@ randomIntegrityImpact =
     Random.uniform INone [ ILow, IHigh ]
 
 
+randomModifiedIntegrityImpact : Random.Generator ModifiedIntegrityImpact
+randomModifiedIntegrityImpact =
+    Random.uniform MiNotDefined <|
+        List.map Mi [ INone, ILow, IHigh ]
+
+
 randomAvailabilityImpact : Random.Generator AvailabilityImpact
 randomAvailabilityImpact =
     Random.uniform ANone [ ALow, AHigh ]
+
+
+randomModifiedAvailabilityImpact : Random.Generator ModifiedAvailabilityImpact
+randomModifiedAvailabilityImpact =
+    Random.uniform MaNotDefined <|
+        List.map Ma [ ANone, ALow, AHigh ]
 
 
 randomExploitCodeMaturity : Random.Generator ExploitCodeMaturity
@@ -712,6 +1256,21 @@ randomRemediationLevel =
 randomReportConfidence : Random.Generator ReportConfidence
 randomReportConfidence =
     Random.uniform RcNotDefined [ RcUnknown, RcReasonable, RcConfirmed ]
+
+
+randomConfidentialityRequirement : Random.Generator ConfidentialityRequirement
+randomConfidentialityRequirement =
+    Random.uniform CrNotDefined [ CrLow, CrMedium, CrHigh ]
+
+
+randomIntegrityRequirement : Random.Generator IntegrityRequirement
+randomIntegrityRequirement =
+    Random.uniform IrNotDefined [ IrLow, IrMedium, IrHigh ]
+
+
+randomAvailabilityRequirement : Random.Generator AvailabilityRequirement
+randomAvailabilityRequirement =
+    Random.uniform ArNotDefined [ ArLow, ArMedium, ArHigh ]
 
 
 
@@ -758,12 +1317,18 @@ extractBaseVectorValue vector =
         TemporalVector value ->
             value.base
 
+        EnvironmentalVector value ->
+            value.temp.base
 
-extractTemporalVectorValue : Vector -> Maybe TemporalVectorValue
+
+extractTemporalVectorValue : Vector -> TemporalVectorValue
 extractTemporalVectorValue vector =
     case vector of
-        BaseVector _ ->
-            Nothing
+        BaseVector value ->
+            TemporalVectorValue value ENotDefined RlNotDefined RcNotDefined
 
         TemporalVector value ->
-            Just value
+            value
+
+        EnvironmentalVector value ->
+            value.temp
