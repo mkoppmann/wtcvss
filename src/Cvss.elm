@@ -1,23 +1,25 @@
-module Cvss exposing (AttackComplexity(..), AttackVector(..), AvailabilityImpact(..), ConfidentialityImpact(..), IntegrityImpact(..), PrivilegesRequired(..), Scope(..), Severity(..), UserInteraction(..), Vector, calculateBaseScore, getMatchingVector, initVector, minPrecision, randomVector, toSeverityVector, toStringSeverity, toStringVector)
+module Cvss exposing (AttackComplexity(..), AttackVector(..), AvailabilityImpact(..), BaseVectorValue, ConfidentialityImpact(..), ExploitCodeMaturity(..), IntegrityImpact(..), PrivilegesRequired(..), RemediationLevel(..), ReportConfidence(..), Scope(..), Severity(..), TemporalVectorValue, UserInteraction(..), Vector(..), VectorChoice(..), calculateScore, getMatchingVector, initVector, randomVector, toSeverityVector, toStringSeverity, toStringVector)
 
 import Random
-import Random.Extra exposing (andMap)
+import Random.Extra exposing (andMap, choice)
 import Round exposing (ceilingNum)
 
 
 
--- CONSTANTS
+-- TYPES
 
 
-{-| The minimal precision when a vector score is seen as valid.
-The value is needed, because there are some ranges where there are no matching vectors.
--}
-minPrecision : Float
-minPrecision =
-    1.0
+type Vector
+    = BaseVector BaseVectorValue
+    | TemporalVector TemporalVectorValue
 
 
-type alias Vector =
+type VectorChoice
+    = BaseVectorChoice
+    | TemporalVectorChoice
+
+
+type alias BaseVectorValue =
     { av : AttackVector
     , ac : AttackComplexity
     , pr : PrivilegesRequired
@@ -26,6 +28,14 @@ type alias Vector =
     , c : ConfidentialityImpact
     , i : IntegrityImpact
     , a : AvailabilityImpact
+    }
+
+
+type alias TemporalVectorValue =
+    { base : BaseVectorValue
+    , e : ExploitCodeMaturity
+    , rl : RemediationLevel
+    , rc : ReportConfidence
     }
 
 
@@ -75,17 +85,35 @@ type AvailabilityImpact
     | AHigh
 
 
+type ExploitCodeMaturity
+    = ENotDefined
+    | EUnproven
+    | EProofOfConcept
+    | EFunctional
+    | EHigh
+
+
+type RemediationLevel
+    = RlNotDefined
+    | RlOfficialFix
+    | RlTemporaryFix
+    | RlWorkaround
+    | RlUnavailable
+
+
+type ReportConfidence
+    = RcNotDefined
+    | RcUnknown
+    | RcReasonable
+    | RcConfirmed
+
+
 type Severity
     = SLow
     | SMedium
     | SHigh
     | SCritical
     | SNone
-
-
-initVector : Vector
-initVector =
-    Vector AvNetwork AcLow PrNone UiNone SUnchanged CNone INone ANone
 
 
 
@@ -105,20 +133,30 @@ roundUp value =
     ceilingNum 1 value
 
 
-calculateBaseScore : Vector -> Float
-calculateBaseScore vector =
+calculateScore : Vector -> Float
+calculateScore vector =
+    case vector of
+        BaseVector value ->
+            calculateBaseScore value
+
+        TemporalVector value ->
+            calculateTemporalScore value
+
+
+calculateBaseScore : BaseVectorValue -> Float
+calculateBaseScore value =
     let
         impact =
-            impactSubScore vector
+            impactSubScore value
 
         exploitability =
-            exploitabilitySubScore vector
+            exploitabilitySubScore value
     in
     if impact <= 0 then
         0.0
 
     else
-        case vector.s of
+        case value.s of
             SUnchanged ->
                 roundUp <| Basics.min (impact + exploitability) 10.0
 
@@ -126,13 +164,13 @@ calculateBaseScore vector =
                 roundUp <| Basics.min (1.08 * (impact + exploitability)) 10.0
 
 
-impactSubScore : Vector -> Float
-impactSubScore vector =
+impactSubScore : BaseVectorValue -> Float
+impactSubScore value =
     let
         iscBase =
-            impactSubScoreBase vector
+            impactSubScoreBase value
     in
-    case vector.s of
+    case value.s of
         SUnchanged ->
             6.42 * iscBase
 
@@ -140,41 +178,59 @@ impactSubScore vector =
             (7.52 * (iscBase - 0.029)) - (3.25 * (iscBase - 0.02) ^ 15)
 
 
-impactSubScoreBase : Vector -> Float
-impactSubScoreBase vector =
+impactSubScoreBase : BaseVectorValue -> Float
+impactSubScoreBase value =
     let
         impactConf =
-            1 - toFloatConfidentialityImpact vector.c
+            1 - toFloatConfidentialityImpact value.c
 
         impactInteg =
-            1 - toFloatIntegrityImpact vector.i
+            1 - toFloatIntegrityImpact value.i
 
         impactAvail =
-            1 - toFloatAvailabilityImpact vector.a
+            1 - toFloatAvailabilityImpact value.a
     in
     1 - (impactConf * impactInteg * impactAvail)
 
 
-exploitabilitySubScore : Vector -> Float
-exploitabilitySubScore vector =
+exploitabilitySubScore : BaseVectorValue -> Float
+exploitabilitySubScore value =
     let
         av =
-            toFloatAttackVector vector.av
+            toFloatAttackVector value.av
 
         ac =
-            toFloatAttackComplexity vector.ac
+            toFloatAttackComplexity value.ac
 
         pr =
-            toFloatPrivilegesRequired vector.s vector.pr
+            toFloatPrivilegesRequired value.s value.pr
 
         ui =
-            toFloatUserInteraction vector.ui
+            toFloatUserInteraction value.ui
     in
     8.22 * av * ac * pr * ui
 
 
+calculateTemporalScore : TemporalVectorValue -> Float
+calculateTemporalScore value =
+    let
+        baseScore =
+            calculateBaseScore value.base
 
--- toFloat
+        exploitCodeMaturity =
+            toFloatExploitCodeMaturity value.e
+
+        remediationLevel =
+            toFloatRemediationLevel value.rl
+
+        reportConfidence =
+            toFloatReportConfidence value.rc
+    in
+    roundUp <| baseScore * exploitCodeMaturity * remediationLevel * reportConfidence
+
+
+
+-- TO_FLOAT
 
 
 toFloatAttackVector : AttackVector -> Float
@@ -278,127 +334,248 @@ toFloatAvailabilityImpact a =
             0.0
 
 
+toFloatExploitCodeMaturity : ExploitCodeMaturity -> Float
+toFloatExploitCodeMaturity em =
+    case em of
+        ENotDefined ->
+            1.0
 
--- toString
+        EUnproven ->
+            0.91
+
+        EProofOfConcept ->
+            0.94
+
+        EFunctional ->
+            0.97
+
+        EHigh ->
+            1
+
+
+toFloatRemediationLevel : RemediationLevel -> Float
+toFloatRemediationLevel rl =
+    case rl of
+        RlNotDefined ->
+            1.0
+
+        RlOfficialFix ->
+            0.95
+
+        RlTemporaryFix ->
+            0.96
+
+        RlWorkaround ->
+            0.97
+
+        RlUnavailable ->
+            1.0
+
+
+toFloatReportConfidence : ReportConfidence -> Float
+toFloatReportConfidence rc =
+    case rc of
+        RcNotDefined ->
+            1.0
+
+        RcUnknown ->
+            0.92
+
+        RcReasonable ->
+            0.96
+
+        RcConfirmed ->
+            1.0
+
+
+
+-- TO_STRING
 
 
 toStringVector : Vector -> String
 toStringVector vector =
-    "CVSS:3.1"
-        ++ "/"
-        ++ toStringAttackVector vector.av
-        ++ "/"
-        ++ toStringAttackComplexity vector.ac
-        ++ "/"
-        ++ toStringPrivilegesRequired vector.pr
-        ++ "/"
-        ++ toStringUserInteraction vector.ui
-        ++ "/"
-        ++ toStringScope vector.s
-        ++ "/"
-        ++ toStringConfidentialityImpact vector.c
-        ++ "/"
-        ++ toStringIntegrityImpact vector.i
-        ++ "/"
-        ++ toStringAvailabilityImpact vector.a
+    case vector of
+        BaseVector value ->
+            toStringBaseVector value
+
+        TemporalVector value ->
+            toStringTemporalVector value
+
+
+toStringTemporalVector : TemporalVectorValue -> String
+toStringTemporalVector value =
+    String.dropRight 1 <|
+        toStringBaseVector value.base
+            ++ "/"
+            ++ toStringExploitCodeMaturity value.e
+            ++ toStringRemediationLevel value.rl
+            ++ toStringReportConfidence value.rc
+
+
+toStringBaseVector : BaseVectorValue -> String
+toStringBaseVector value =
+    String.dropRight 1 <|
+        "CVSS:3.1/"
+            ++ toStringAttackVector value.av
+            ++ toStringAttackComplexity value.ac
+            ++ toStringPrivilegesRequired value.pr
+            ++ toStringUserInteraction value.ui
+            ++ toStringScope value.s
+            ++ toStringConfidentialityImpact value.c
+            ++ toStringIntegrityImpact value.i
+            ++ toStringAvailabilityImpact value.a
 
 
 toStringAttackVector : AttackVector -> String
 toStringAttackVector av =
     case av of
         AvNetwork ->
-            "AV:N"
+            "AV:N/"
 
         AvAdjacentNetwork ->
-            "AV:A"
+            "AV:A/"
 
         AvLocal ->
-            "AV:L"
+            "AV:L/"
 
         AvPhysical ->
-            "AV:P"
+            "AV:P/"
 
 
 toStringAttackComplexity : AttackComplexity -> String
 toStringAttackComplexity ac =
     case ac of
         AcLow ->
-            "AC:L"
+            "AC:L/"
 
         AcHigh ->
-            "AC:H"
+            "AC:H/"
 
 
 toStringPrivilegesRequired : PrivilegesRequired -> String
 toStringPrivilegesRequired pr =
     case pr of
         PrNone ->
-            "PR:N"
+            "PR:N/"
 
         PrLow ->
-            "PR:L"
+            "PR:L/"
 
         PrHigh ->
-            "PR:H"
+            "PR:H/"
 
 
 toStringUserInteraction : UserInteraction -> String
 toStringUserInteraction ui =
     case ui of
         UiNone ->
-            "UI:N"
+            "UI:N/"
 
         UiRequired ->
-            "UI:R"
+            "UI:R/"
 
 
 toStringScope : Scope -> String
 toStringScope s =
     case s of
         SUnchanged ->
-            "S:U"
+            "S:U/"
 
         SChanged ->
-            "S:C"
+            "S:C/"
 
 
 toStringConfidentialityImpact : ConfidentialityImpact -> String
 toStringConfidentialityImpact c =
     case c of
         CNone ->
-            "C:N"
+            "C:N/"
 
         CLow ->
-            "C:L"
+            "C:L/"
 
         CHigh ->
-            "C:H"
+            "C:H/"
 
 
 toStringIntegrityImpact : IntegrityImpact -> String
 toStringIntegrityImpact i =
     case i of
         INone ->
-            "I:N"
+            "I:N/"
 
         ILow ->
-            "I:L"
+            "I:L/"
 
         IHigh ->
-            "I:H"
+            "I:H/"
 
 
 toStringAvailabilityImpact : AvailabilityImpact -> String
 toStringAvailabilityImpact a =
     case a of
         ANone ->
-            "A:N"
+            "A:N/"
 
         ALow ->
-            "A:L"
+            "A:L/"
 
         AHigh ->
-            "A:H"
+            "A:H/"
+
+
+toStringExploitCodeMaturity : ExploitCodeMaturity -> String
+toStringExploitCodeMaturity em =
+    case em of
+        ENotDefined ->
+            ""
+
+        EUnproven ->
+            "E:U/"
+
+        EProofOfConcept ->
+            "E:F/"
+
+        EFunctional ->
+            "E:P/"
+
+        EHigh ->
+            "E:H/"
+
+
+toStringRemediationLevel : RemediationLevel -> String
+toStringRemediationLevel rl =
+    case rl of
+        RlNotDefined ->
+            ""
+
+        RlOfficialFix ->
+            "RL:O/"
+
+        RlTemporaryFix ->
+            "RL:T/"
+
+        RlWorkaround ->
+            "RL:W/"
+
+        RlUnavailable ->
+            "RL:U/"
+
+
+toStringReportConfidence : ReportConfidence -> String
+toStringReportConfidence rc =
+    case rc of
+        RcNotDefined ->
+            ""
+
+        RcUnknown ->
+            "RC:U/"
+
+        RcReasonable ->
+            "RC:R/"
+
+        RcConfirmed ->
+            "RC:C/"
 
 
 toStringSeverity : Severity -> String
@@ -421,11 +598,11 @@ toStringSeverity severity =
 
 
 
--- Random generators
+-- RANDOM
 
 
-getMatchingVector : Float -> Float -> Random.Generator Vector
-getMatchingVector maxPrecision score =
+getMatchingVector : VectorChoice -> Float -> Float -> Float -> Random.Generator Vector
+getMatchingVector choice minPrecision maxPrecision score =
     let
         minValue =
             score - minPrecision
@@ -436,19 +613,50 @@ getMatchingVector maxPrecision score =
         isInRange calculatedScore =
             minValue <= calculatedScore && calculatedScore <= maxValue
     in
-    Random.Extra.filter (\vector -> isInRange <| calculateBaseScore vector) randomVector
+    case choice of
+        BaseVectorChoice ->
+            Random.Extra.filter (\vector -> isInRange <| calculateScore vector) randomBaseVector
+
+        TemporalVectorChoice ->
+            Random.Extra.filter (\vector -> isInRange <| calculateScore vector) randomTemporalVector
 
 
-randomVector : Random.Generator Vector
-randomVector =
-    Random.map Vector randomAttackVector
-        |> andMap randomAttackComplexity
-        |> andMap randomPrivilegesRequired
-        |> andMap randomUserInteraction
-        |> andMap randomScope
-        |> andMap randomConfidentialityImpact
-        |> andMap randomIntegrityImpact
-        |> andMap randomAvailabilityImpact
+randomVector : VectorChoice -> Random.Generator Vector
+randomVector choice =
+    case choice of
+        BaseVectorChoice ->
+            randomBaseVector
+
+        TemporalVectorChoice ->
+            randomTemporalVector
+
+
+randomTemporalVector : Random.Generator Vector
+randomTemporalVector =
+    let
+        baseVectorValue =
+            Random.map extractBaseVectorValue randomBaseVector
+    in
+    Random.map TemporalVector
+        (Random.map TemporalVectorValue baseVectorValue
+            |> andMap randomExploitCodeMaturity
+            |> andMap randomRemediationLevel
+            |> andMap randomReportConfidence
+        )
+
+
+randomBaseVector : Random.Generator Vector
+randomBaseVector =
+    Random.map BaseVector
+        (Random.map BaseVectorValue randomAttackVector
+            |> andMap randomAttackComplexity
+            |> andMap randomPrivilegesRequired
+            |> andMap randomUserInteraction
+            |> andMap randomScope
+            |> andMap randomConfidentialityImpact
+            |> andMap randomIntegrityImpact
+            |> andMap randomAvailabilityImpact
+        )
 
 
 randomAttackVector : Random.Generator AttackVector
@@ -491,6 +699,21 @@ randomAvailabilityImpact =
     Random.uniform ANone [ ALow, AHigh ]
 
 
+randomExploitCodeMaturity : Random.Generator ExploitCodeMaturity
+randomExploitCodeMaturity =
+    Random.uniform ENotDefined [ EUnproven, EProofOfConcept, EFunctional, EHigh ]
+
+
+randomRemediationLevel : Random.Generator RemediationLevel
+randomRemediationLevel =
+    Random.uniform RlNotDefined [ RlOfficialFix, RlTemporaryFix, RlWorkaround, RlUnavailable ]
+
+
+randomReportConfidence : Random.Generator ReportConfidence
+randomReportConfidence =
+    Random.uniform RcNotDefined [ RcUnknown, RcReasonable, RcConfirmed ]
+
+
 
 -- SEVERITY
 
@@ -499,7 +722,7 @@ toSeverityVector : Vector -> Severity
 toSeverityVector vector =
     let
         score =
-            calculateBaseScore vector
+            calculateScore vector
     in
     if 0.1 <= score && score <= 3.9 then
         SLow
@@ -515,3 +738,32 @@ toSeverityVector vector =
 
     else
         SNone
+
+
+
+-- HELPER
+
+
+initVector : Vector
+initVector =
+    BaseVector (BaseVectorValue AvNetwork AcLow PrNone UiNone SUnchanged CNone INone ANone)
+
+
+extractBaseVectorValue : Vector -> BaseVectorValue
+extractBaseVectorValue vector =
+    case vector of
+        BaseVector value ->
+            value
+
+        TemporalVector value ->
+            value.base
+
+
+extractTemporalVectorValue : Vector -> Maybe TemporalVectorValue
+extractTemporalVectorValue vector =
+    case vector of
+        BaseVector _ ->
+            Nothing
+
+        TemporalVector value ->
+            Just value

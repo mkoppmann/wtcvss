@@ -3,7 +3,7 @@ module Main exposing (Model, Msg(..), init, main, update, view)
 import Browser
 import Browser.Dom exposing (Viewport, getViewport)
 import Browser.Events exposing (onResize)
-import Cvss exposing (Severity(..), Vector, calculateBaseScore, getMatchingVector, initVector, minPrecision, randomVector, toSeverityVector, toStringSeverity, toStringVector)
+import Cvss exposing (Severity(..), Vector(..), VectorChoice(..), calculateScore, getMatchingVector, initVector, randomVector, toSeverityVector, toStringSeverity, toStringVector)
 import Element exposing (Color, Device, DeviceClass(..), Element, Orientation(..), alignRight, behindContent, centerX, centerY, classifyDevice, column, el, fill, height, layout, link, none, padding, px, rgb, rgb255, rgba, row, shrink, spacing, text, width, wrappedRow)
 import Element.Background as Background
 import Element.Border as Border
@@ -72,15 +72,17 @@ type alias Model =
     , precision : Float
     , score : Float
     , vector : Vector
+    , vectorChoice : VectorChoice
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { device = Nothing
-      , precision = minPrecision
+      , precision = getMinPrecision BaseVectorChoice
       , score = cvssv3MinimumScore
       , vector = initVector
+      , vectorChoice = BaseVectorChoice
       }
     , Task.perform GotViewport getViewport
     )
@@ -105,6 +107,7 @@ type Msg
     = ChangePrecision Float
     | ChangeScore Float
     | ChangeVector Vector
+    | ChangeVectorChoice VectorChoice
     | ChangeScoreAndVector Vector
     | CalculateVectorAgain
     | DeviceClassified Device
@@ -117,12 +120,12 @@ update msg model =
     case msg of
         ChangePrecision newPrecision ->
             ( { model | precision = newPrecision }
-            , newRandomVectorWithScore newPrecision model.score
+            , newRandomVectorWithScore model.vectorChoice newPrecision model.score
             )
 
         ChangeScore newScore ->
             ( { model | score = newScore }
-            , newRandomVectorWithScore model.precision newScore
+            , newRandomVectorWithScore model.vectorChoice model.precision newScore
             )
 
         ChangeVector newVector ->
@@ -130,14 +133,19 @@ update msg model =
             , Cmd.none
             )
 
+        ChangeVectorChoice newVectorChoice ->
+            ( { model | vectorChoice = newVectorChoice }
+            , newRandomVectorWithScore newVectorChoice model.precision model.score
+            )
+
         ChangeScoreAndVector newVector ->
-            ( { model | score = calculateBaseScore newVector, vector = newVector }
+            ( { model | score = calculateScore newVector, vector = newVector }
             , Cmd.none
             )
 
         CalculateVectorAgain ->
             ( model
-            , newRandomVectorWithScore model.precision model.score
+            , newRandomVectorWithScore model.vectorChoice model.precision model.score
             )
 
         DeviceClassified device ->
@@ -159,7 +167,7 @@ update msg model =
 
         NewRandomVector ->
             ( model
-            , newRandomVector
+            , newRandomVector model.vectorChoice
             )
 
 
@@ -222,8 +230,9 @@ responsiveLayout borderRadius fontSize model =
             , width shrink
             ]
             [ title
-            , precisionInput model.precision
+            , precisionInput model.vectorChoice model.precision
             , scoreInput model.score
+            , selectVectorChoice model.vectorChoice
             , viewVector fontSize model.vector
             , buttons
             , linkToSourceCode
@@ -281,8 +290,12 @@ vectorButton message labelText =
         }
 
 
-precisionInput : Float -> Element Msg
-precisionInput precision =
+precisionInput : VectorChoice -> Float -> Element Msg
+precisionInput choice precision =
+    let
+        minPrecision =
+            getMinPrecision choice
+    in
     inputSlider ChangePrecision "Precision: " minPrecision precision
 
 
@@ -327,7 +340,7 @@ viewVector size vector =
             firstOrgCvssPrefix ++ sVector
 
         sVectorScore =
-            String.fromFloat (calculateBaseScore vector)
+            String.fromFloat <| calculateScore vector
 
         linkedVector =
             el
@@ -356,6 +369,22 @@ viewVector size vector =
         ]
 
 
+selectVectorChoice : VectorChoice -> Element Msg
+selectVectorChoice currentChoice =
+    Input.radioRow
+        [ padding 20
+        , spacing 20
+        ]
+        { onChange = ChangeVectorChoice
+        , selected = Just currentChoice
+        , label = Input.labelAbove [] (text "Vector Type")
+        , options =
+            [ Input.option BaseVectorChoice (text "Base")
+            , Input.option TemporalVectorChoice (text "Temporal")
+            ]
+        }
+
+
 toColorSeverity : Severity -> Color
 toColorSeverity severity =
     case severity of
@@ -376,14 +405,35 @@ toColorSeverity severity =
 
 
 
--- Random
+-- RANDOM
 
 
-newRandomVectorWithScore : Float -> Float -> Cmd Msg
-newRandomVectorWithScore maxPrecision score =
-    Random.generate ChangeVector <| getMatchingVector maxPrecision score
+newRandomVectorWithScore : VectorChoice -> Float -> Float -> Cmd Msg
+newRandomVectorWithScore choice maxPrecision score =
+    let
+        minPrecision =
+            getMinPrecision choice
+    in
+    Random.generate ChangeVector <| getMatchingVector choice minPrecision maxPrecision score
 
 
-newRandomVector : Cmd Msg
-newRandomVector =
-    Random.generate ChangeScoreAndVector randomVector
+newRandomVector : VectorChoice -> Cmd Msg
+newRandomVector choice =
+    Random.generate ChangeScoreAndVector <| randomVector choice
+
+
+
+-- HELPER
+
+
+{-| The minimal precision when a vector score is seen as valid.
+The value is needed, because there are some ranges where there are no matching vectors.
+-}
+getMinPrecision : VectorChoice -> Float
+getMinPrecision choice =
+    case choice of
+        BaseVectorChoice ->
+            1.0
+
+        TemporalVectorChoice ->
+            0.7
