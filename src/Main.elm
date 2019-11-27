@@ -49,6 +49,11 @@ lightGrey =
     rgb 0.6 0.6 0.6
 
 
+black : Color
+black =
+    rgb 0.0 0.0 0.0
+
+
 
 -- MAIN
 
@@ -219,25 +224,37 @@ responsiveLayout borderRadius fontSize model =
         ]
       <|
         column
-            [ Background.color white
-            , Border.rounded borderRadius
-            , Border.shadow { offset = ( 4, 6 ), size = 1, blur = 8, color = rgba 0 0 0 0.2 }
-            , centerX
+            [ centerX
             , centerY
-            , height shrink
-            , padding 24
-            , spacing 36
-            , width shrink
+            , spacing 40
+            , width fill
             ]
-            [ title
-            , precisionInput model.vectorChoice model.precision
-            , scoreInput model.score
-            , selectVectorChoice model.vectorChoice
+            [ controlPanel borderRadius model
             , viewVector fontSize model.vector
-            , buttons
-            , linkToSourceCode
             ]
     ]
+
+
+controlPanel : Int -> Model -> Element Msg
+controlPanel borderRadius model =
+    column
+        [ Background.color white
+        , Border.rounded borderRadius
+        , Border.shadow { offset = ( 4, 6 ), size = 1, blur = 8, color = rgba 0 0 0 0.2 }
+        , centerX
+        , centerY
+        , height shrink
+        , padding 24
+        , spacing 36
+        , width shrink
+        ]
+        [ title
+        , precisionInput model.vectorChoice model.precision
+        , scoreInput model.score
+        , selectVectorChoice model.vectorChoice
+        , buttons
+        , linkToSourceCode
+        ]
 
 
 title : Element msg
@@ -339,14 +356,12 @@ viewVector size vector =
         sVectorUrl =
             firstOrgCvssPrefix ++ sVector
 
-        sVectorScore =
-            String.fromFloat <| calculateScore vector
-
         linkedVector =
             el
                 [ Background.color <| toColorSeverity <| toSeverityVector vector
                 , Border.innerShadow { offset = ( 0, 2 ), size = 0, blur = 4, color = rgba 0 0 0 0.2 }
                 , Border.rounded 5
+                , centerX
                 , Font.color white
                 , Font.size size
                 , padding 10
@@ -358,15 +373,32 @@ viewVector size vector =
                     }
                 )
     in
-    column [ spacing 10 ]
-        [ text <|
-            "Vector score: "
-                ++ sVectorScore
+    column
+        [ Background.color black
+        , centerX
+        , centerY
+        , padding 20
+        , spacing 10
+        , width fill
+        ]
+        [ viewVectorScore vector
+        , linkedVector
+        ]
+
+
+viewVectorScore : Vector -> Element msg
+viewVectorScore vector =
+    el
+        [ centerX
+        , Font.color white
+        ]
+        (text <|
+            "Calculated score: "
+                ++ (String.fromFloat <| calculateScore vector)
                 ++ " ("
                 ++ (toStringSeverity <| toSeverityVector vector)
                 ++ ")"
-        , linkedVector
-        ]
+        )
 
 
 selectVectorChoice : VectorChoice -> Element Msg
