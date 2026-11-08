@@ -6,3 +6,7 @@ repl-temp-*
 *.html
 *.js
 
+
+# Nix
+result
+result-*
